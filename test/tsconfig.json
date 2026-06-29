@@ -1,0 +1,6 @@
+{
+  // Vitest only applies the root tsconfig's jsxImportSource to files its include covers, and that's src only.
+  // This makes the test files pick up hono/jsx instead of falling back to react.
+  "extends": "../tsconfig.json",
+  "include": ["**/*"]
+}
