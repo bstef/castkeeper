@@ -60,16 +60,38 @@ async function batchExecute(db: ReturnType<typeof getDb>, stmts: BatchItem<"sqli
   }
 }
 
-export async function getExistingEpisodeUuids(d1: D1Database, uuids: string[]): Promise<Set<string>> {
-  if (uuids.length === 0) return new Set();
+export interface EpisodeSyncState {
+  playing_status: number;
+  played_up_to: number;
+  starred: number;
+  is_deleted: number;
+}
+
+// Returns the four fields the sync can change, so the caller can skip episodes that already match.
+export async function getEpisodeSyncState(d1: D1Database, uuids: string[]): Promise<Map<string, EpisodeSyncState>> {
+  const result = new Map<string, EpisodeSyncState>();
+  if (uuids.length === 0) return result;
 
   const db = getDb(d1);
-  const result = new Set<string>();
 
   for (let i = 0; i < uuids.length; i += BATCH_SIZE) {
     const chunk = uuids.slice(i, i + BATCH_SIZE);
-    const rows = await db.select({ uuid: episodes.uuid }).from(episodes).where(inArray(episodes.uuid, chunk));
-    for (const r of rows) result.add(r.uuid);
+    const rows = await db.select({
+      uuid: episodes.uuid,
+      playing_status: episodes.playing_status,
+      played_up_to: episodes.played_up_to,
+      starred: episodes.starred,
+      is_deleted: episodes.is_deleted,
+    }).from(episodes).where(inArray(episodes.uuid, chunk));
+
+    for (const r of rows) {
+      result.set(r.uuid, {
+        playing_status: r.playing_status,
+        played_up_to: r.played_up_to,
+        starred: r.starred,
+        is_deleted: r.is_deleted,
+      });
+    }
   }
 
   return result;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { resetDatabase } from "./reset-db";
-import { getExistingEpisodeUuids, updateEpisodeSyncData, insertNewEpisodes, getEpisodes, getEpisodeCount, savePodcasts, getPodcasts, getPodcastCount, saveBookmarks, getBookmarks, getPodcastsWithStats, getBookmarksWithEpisodes, updateEpisodePlayedAt, parseFilters } from "../src/db";
+import { getEpisodeSyncState, updateEpisodeSyncData, insertNewEpisodes, getEpisodes, getEpisodeCount, savePodcasts, getPodcasts, getPodcastCount, saveBookmarks, getBookmarks, getPodcastsWithStats, getBookmarksWithEpisodes, updateEpisodePlayedAt, parseFilters } from "../src/db";
 import type { NewEpisode, EpisodeFilter } from "../src/db";
 import type { PodcastListResponse, BookmarkListResponse } from "../src/types";
 
@@ -88,27 +88,31 @@ describe("insertNewEpisodes", () => {
   });
 });
 
-describe("getExistingEpisodeUuids", () => {
-  it("returns empty set for empty db", async () => {
-    const result = await getExistingEpisodeUuids(env.DB, ["ep-1"]);
+describe("getEpisodeSyncState", () => {
+  it("returns nothing for empty db", async () => {
+    const result = await getEpisodeSyncState(env.DB, ["ep-1"]);
     expect(result.size).toBe(0);
   });
 
-  it("returns existing uuids", async () => {
+  it("returns the sync fields for existing episodes only", async () => {
     await insertNewEpisodes(env.DB, [
-      makeNewEpisode({ uuid: "ep-1" }),
+      makeNewEpisode({ uuid: "ep-1", playing_status: 2, played_up_to: 1800, starred: 1, is_deleted: 0 }),
       makeNewEpisode({ uuid: "ep-2" }),
     ]);
 
-    const result = await getExistingEpisodeUuids(env.DB, ["ep-1", "ep-2", "ep-3"]);
+    const result = await getEpisodeSyncState(env.DB, ["ep-1", "ep-2", "ep-3"]);
     expect(result.size).toBe(2);
-    expect(result.has("ep-1")).toBe(true);
-    expect(result.has("ep-2")).toBe(true);
+    expect(result.get("ep-1")).toEqual({
+      playing_status: 2,
+      played_up_to: 1800,
+      starred: 1,
+      is_deleted: 0,
+    });
     expect(result.has("ep-3")).toBe(false);
   });
 
-  it("returns empty set for empty input", async () => {
-    const result = await getExistingEpisodeUuids(env.DB, []);
+  it("returns nothing for empty input", async () => {
+    const result = await getEpisodeSyncState(env.DB, []);
     expect(result.size).toBe(0);
   });
 });

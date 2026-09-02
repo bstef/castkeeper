@@ -1,6 +1,6 @@
 import { login } from "./login";
 import { getEpisodeSyncData, getPodcastEpisodeMetadata, getPodcastList, getBookmarks } from "./api";
-import { getExistingEpisodeUuids, updateEpisodeSyncData, insertNewEpisodes, savePodcasts, saveBookmarks, updatePodcastEpisodeCount, resetBackupProgress, incrementBackupProgress, updateEpisodePlayedAt } from "./db";
+import { getEpisodeSyncState, updateEpisodeSyncData, insertNewEpisodes, savePodcasts, saveBookmarks, updatePodcastEpisodeCount, resetBackupProgress, incrementBackupProgress, updateEpisodePlayedAt } from "./db";
 import type { EpisodeUpdate, NewEpisode } from "./db";
 import { getListenHistory } from "./history";
 import type { Env, BackupQueueMessage, EpisodeSyncItem, CacheEpisode } from "./types";
@@ -105,23 +105,41 @@ async function processPodcastEpisodes(
   }
 
   const interactedUuids = interacted.map((ep) => ep.uuid);
-  const existingUuids = await getExistingEpisodeUuids(d1, interactedUuids);
+  const currentState = await getEpisodeSyncState(d1, interactedUuids);
 
   const toUpdate: EpisodeUpdate[] = [];
   const newSyncItems: EpisodeSyncItem[] = [];
+  let unchanged = 0;
 
   for (const ep of interacted) {
-    if (existingUuids.has(ep.uuid)) {
-      toUpdate.push({
-        uuid: ep.uuid,
-        playing_status: ep.playingStatus,
-        played_up_to: ep.playedUpTo,
-        starred: ep.starred ? 1 : 0,
-        is_deleted: ep.isDeleted ? 1 : 0,
-      });
-    } else {
+    const current = currentState.get(ep.uuid);
+
+    if (!current) {
       newSyncItems.push(ep);
+      continue;
     }
+
+    const next: EpisodeUpdate = {
+      uuid: ep.uuid,
+      playing_status: ep.playingStatus,
+      played_up_to: ep.playedUpTo,
+      starred: ep.starred ? 1 : 0,
+      is_deleted: ep.isDeleted ? 1 : 0,
+    };
+
+    // An episode you finished years ago comes back from the API every hour with the same
+    // values. Writing it again would burn a D1 write for nothing.
+    const same = current.playing_status === next.playing_status
+      && current.played_up_to === next.played_up_to
+      && current.starred === next.starred
+      && current.is_deleted === next.is_deleted;
+
+    if (same) {
+      unchanged++;
+      continue;
+    }
+
+    toUpdate.push(next);
   }
 
   if (toUpdate.length > 0) {
@@ -170,6 +188,6 @@ async function processPodcastEpisodes(
     }
   }
 
-  console.log(`[${podcastTitle}] Done: ${toUpdate.length} updated, ${newSyncItems.length} new`);
+  console.log(`[${podcastTitle}] Done: ${toUpdate.length} updated, ${newSyncItems.length} new, ${unchanged} unchanged`);
   return interacted.length;
 }
